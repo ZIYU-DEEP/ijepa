@@ -415,7 +415,7 @@ class VisionTransformer(nn.Module):
         if out_feat_keys is None or len(out_feat_keys) == 0:
             x = self.forward_features(x, masks)
         else:
-            x = self.get_intermediate_features(x, out_feat_keys)
+            x = self.get_intermediate_features(x, masks, out_feat_keys)
         return x
     
     def prepare_tokens(self, 
