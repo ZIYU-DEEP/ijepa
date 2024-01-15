@@ -25,7 +25,6 @@ Leavitt (ito@fb.com, matthew.l.leavitt@gmail.com) and Vedanuj Goswami
 (vedanuj@fb.com).
 """
 
-import logging
 import math
 from functools import partial
 from typing import List, Tuple
@@ -34,12 +33,20 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from fairscale.nn import checkpoint_wrapper
-from vissl.config import AttrDict
-from vissl.models.model_helpers import DropPath, to_2tuple, trunc_normal_
-from vissl.models.trunks import register_model_trunk
-from vissl.utils.fsdp_utils import fsdp_wrapper
-from vissl.utils.misc import set_torch_seed
+
+from src.utils.tensors import (
+    trunc_normal_,
+    repeat_interleave_batch
+)
+from src.masks.utils import apply_masks
+# from fairscale.nn import checkpoint_wrapper
+# from vissl.config import AttrDict
+# from vissl.models.model_helpers import DropPath, to_2tuple, trunc_normal_
+# from vissl.models.trunks import register_model_trunk
+# from vissl.utils.fsdp_utils import fsdp_wrapper
+# from vissl.utils.misc import set_torch_seed
+
+
 
 
 class Mlp(nn.Module):
