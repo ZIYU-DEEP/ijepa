@@ -2,6 +2,7 @@
 #
 
 import math
+import collections
 from functools import partial
 from typing import List, Tuple
 import numpy as np
@@ -455,57 +456,66 @@ class VisionTransformer(nn.Module):
 
         return x
 
-    def get_intermediate_features(self, 
-                                  x: torch.Tensor, 
-                                  masks=None,
-                                  names: List[str]=None) -> List[torch.Tensor]:
-        """
-        Given a list of feature names, return a list of the same length
-        where each output correspond to the desired feature.
+def get_intermediate_features(self, 
+                              x: torch.Tensor, masks=None, names: List[str]=None) -> List[torch.Tensor]:
+    """
+    Given a list of feature names, return a list of the same length
+    where each output correspond to the desired feature.
 
-        The available features are:
-        - lastPOOL
-        - concatPOOL4
-        """
+    The available features are:
+    - lastPOOL
+    - concatPOOL4
+    """
 
-        # Get feature from every intermediate block and apply norm
-        interms = []
-        x = self.prepare_tokens(x, masks)
+    # Prepare tokens (patchify and add positional encoding)
+    x = self.prepare_tokens(x, masks)
 
-        # -- fwd prop
-        for i, blk in enumerate(self.blocks):
-            x = blk(x)
+    # Determine the number of layers to keep based on requested features
+    keep_last_n = 1 if "lastPOOL" in names else 0
+    if any(name.startswith("concatPOOL") for name in names):
+        keep_last_n = max(keep_last_n, 4)  # Keep last 4 for concatPOOL4
 
-            if self.norm is not None:
-                x = self.norm(x)
-            interms.append(x)
+    # Buffer to store outputs of the required last N layers
+    interms_buffer = collections.deque(maxlen=keep_last_n)
 
-        # Then collect the desired features
-        output = []
-        for name in names:
-            if name == "lastPOOL":
-                output.append(self.avg_pool(interms[-1]))
-            elif name.startswith("concatPOOL"):
-                v = int(name.replace("concatPOOL", ""))
-                feat = torch.cat([self.avg_pool(x) for x in interms[-v:]], dim=-1)
-                output.append(feat)
-        return output
+    # Forward propagation
+    for i, blk in enumerate(self.blocks):
+        x = blk(x)
 
-    def interpolate_pos_encoding(self, x, pos_embed):
-        npatch = x.shape[1] - 1
-        N = pos_embed.shape[1] - 1
-        if npatch == N:
-            return pos_embed
-        class_emb = pos_embed[:, 0]
-        pos_embed = pos_embed[:, 1:]
-        dim = x.shape[-1]
-        pos_embed = nn.functional.interpolate(
-            pos_embed.reshape(1, int(math.sqrt(N)), int(math.sqrt(N)), dim).permute(0, 3, 1, 2),
-            scale_factor=math.sqrt(npatch / N),
-            mode='bicubic',
-        )
-        pos_embed = pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
-        return torch.cat((class_emb.unsqueeze(0), pos_embed), dim=1)
+        if self.norm is not None:
+            x = self.norm(x)
+
+        # Append to buffer if in the last N layers
+        if i >= len(self.blocks) - keep_last_n:
+            interms_buffer.append(x)
+
+    # Collect the desired features
+    output = []
+    for name in names:
+        if name == "lastPOOL":
+            output.append(self.avg_pool(interms_buffer[-1]))
+        elif name.startswith("concatPOOL"):
+            concat_features = torch.cat([self.avg_pool(layer) for layer in interms_buffer], dim=-1)
+            output.append(concat_features)
+
+    return output
+
+
+def interpolate_pos_encoding(self, x, pos_embed):
+    npatch = x.shape[1] - 1
+    N = pos_embed.shape[1] - 1
+    if npatch == N:
+        return pos_embed
+    class_emb = pos_embed[:, 0]
+    pos_embed = pos_embed[:, 1:]
+    dim = x.shape[-1]
+    pos_embed = nn.functional.interpolate(
+        pos_embed.reshape(1, int(math.sqrt(N)), int(math.sqrt(N)), dim).permute(0, 3, 1, 2),
+        scale_factor=math.sqrt(npatch / N),
+        mode='bicubic',
+    )
+    pos_embed = pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
+    return torch.cat((class_emb.unsqueeze(0), pos_embed), dim=1)
 
 
 def vit_predictor(**kwargs):
