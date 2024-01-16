@@ -280,16 +280,11 @@ def main(args, resume_preempt=False):
 
         for itr, (x, y) in enumerate(supervised_loader):
 
-            # ###############################
             x = x.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
 
-
-            #################################
-
             def train_step():
                 # Set lr and weight decay
-                _new_lr = scheduler.step()
                 _new_wd = wd_scheduler.step() if wd_scheduler else wd
                 # --
 
@@ -316,12 +311,13 @@ def main(args, resume_preempt=False):
                     loss.backward()
                     optimizer.step()
 
+
                 grad_stats = None
                 optimizer.zero_grad()
 
-                return (float(loss), float(acc), _new_lr, _new_wd, grad_stats)
+                return (float(loss), float(acc), _new_wd, grad_stats)
 
-            (loss, acc, _new_lr, _new_wd, grad_stats), etime = gpu_timer(train_step)
+            (loss, acc, _new_wd, grad_stats), etime = gpu_timer(train_step)
             loss_meter.update(loss)
             time_meter.update(etime)
             acc_meter.update(acc)
@@ -330,21 +326,12 @@ def main(args, resume_preempt=False):
             def log_stats():
                 csv_logger.log(epoch + 1, itr, loss, acc, etime)
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
-                    print('epoch', epoch)
-                    print('itr', itr)
-                    print('loss', loss_meter.avg)
-                    print('acc', acc_meter.avg)
-                    print('wd', _new_wd)
-                    print('lr', _new_lr)
-                    print(time_meter.avg)
                     logger.info(f'[{epoch + 1}, {itr:5d}] '
                                 f'loss: {loss_meter.avg:.3f} '
                                 f'[acc: {acc_meter.avg:.2e}] '
                                 f'[wd: {_new_wd:.2e}] '
-                                f'[lr: {_new_lr:.2e}] '
                                 f'[mem: {torch.cuda.max_memory_allocated() / 1024.**2:.2e}] '
                                 f'({time_meter.avg:.1f} ms)')
-
 
                     if grad_stats is not None:
                         logger.info('[%d, %5d] grad_stats: [%.2e %.2e] (%.2e, %.2e)'
@@ -358,8 +345,13 @@ def main(args, resume_preempt=False):
 
             assert not np.isnan(loss), 'loss is nan'
 
+        # lr update after each epoch as this is multistep
+        scheduler.step()
+        current_lr = scheduler.get_last_lr()[0]
+
         # -- Save Checkpoint after every epoch
-        logger.info('avg. loss %.3f' % loss_meter.avg)
+        logger.info(f'avg. loss {loss_meter.avg:.3f}')
+        logger.info(f'current lr {current_lr}')
         save_checkpoint(epoch+1)
 
 if __name__ == "__main__":
