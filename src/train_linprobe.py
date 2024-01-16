@@ -330,6 +330,13 @@ def main(args, resume_preempt=False):
             def log_stats():
                 csv_logger.log(epoch + 1, itr, loss, acc, etime)
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
+                    print('epoch', epoch)
+                    print('itr', itr)
+                    print('loss', loss_meter.avg)
+                    print('acc', acc_meter.avg)
+                    print('wd', _new_wd)
+                    print('lr', _new_lr)
+                    print(time_meter.avg)
                     logger.info(f'[{epoch + 1}, {itr:5d}] '
                                 f'loss: {loss_meter.avg:.3f} '
                                 f'[acc: {acc_meter.avg:.2e}] '
