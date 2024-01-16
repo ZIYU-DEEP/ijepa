@@ -247,7 +247,7 @@ def main(args, resume_preempt=False):
             scheduler.step()
             if wd_scheduler: wd_scheduler.step()
 
-    def ckpoint(epoch):
+    def save_checkpoint(epoch):
         save_dict = {
             'prober': prober.state_dict(),
             'opt': optimizer.state_dict(),
@@ -355,7 +355,7 @@ def main(args, resume_preempt=False):
 
         # -- Save Checkpoint after every epoch
         logger.info('avg. loss %.3f' % loss_meter.avg)
-        ckpoint(epoch+1)
+        save_checkpoint(epoch+1)
 
 if __name__ == "__main__":
     main()
