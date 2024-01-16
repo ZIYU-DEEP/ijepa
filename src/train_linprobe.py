@@ -235,8 +235,10 @@ def main(args, resume_preempt=False):
 
     prober = DistributedDataParallel(prober, static_graph=True)
 
+    start_epoch = 0
     # -- load training checkpoint
     if load_model:
+        # Load the presaved things
         prober, optimizer, scaler, start_epoch = load_checkpoint_prober(
             device=device,
             r_path=load_path,
@@ -244,7 +246,8 @@ def main(args, resume_preempt=False):
             opt=optimizer,
             scaler=scaler)
 
-        for _ in range(start_epoch*ipe):
+        # Step the scheduler
+        for _ in range(start_epoch * ipe):
             scheduler.step()
             if wd_scheduler: wd_scheduler.step()
 
