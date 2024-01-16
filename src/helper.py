@@ -224,6 +224,7 @@ def init_opt_prober(
     base_lr_batch_size: int=256,
     milestones: list=None,
     gamma: float=0.1,
+    use_bfloat16: bool=False
 ):
 
     """

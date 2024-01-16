@@ -230,7 +230,8 @@ def main(args, resume_preempt=False):
         base_lr_value=base_lr_value,
         base_lr_batch_size=base_lr_batch_size,
         milestones=milestones,
-        gamma=gamma)
+        gamma=gamma,
+        use_bfloat16=use_bfloat16)
 
     prober = DistributedDataParallel(prober, static_graph=True)
 
