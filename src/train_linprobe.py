@@ -80,6 +80,8 @@ def main(args, resume_preempt=False):
     model_name = args['meta']['model_name']
     load_model = args['meta']['load_checkpoint'] or resume_preempt
     r_file = args['meta']['read_checkpoint']
+    load_encoder_weights = args['meta']['load_encoder_weights']
+    load_encoder_weights_path = args['meta']['load_encoder_weights_path']
     if not torch.cuda.is_available():
         device = torch.device('cpu')
     else:
@@ -115,8 +117,6 @@ def main(args, resume_preempt=False):
     # -- PROBE
     out_feat_keys = args['probe']['out_feat_keys']
     n_categories = args['probe']['n_categories']
-    load_weights = args['probe']['load_weights']
-    load_weights_path = args['probe']['load_weights_path']
 
     dump = os.path.join(folder, 'params-ijepa.yaml')
     os.makedirs(folder, exist_ok=True)
@@ -195,8 +195,9 @@ def main(args, resume_preempt=False):
     encoder = DistributedDataParallel(encoder)
 
     # -- load the weights
-    if load_weights:
-        encoder_weights = torch.load(load_weights_path,
+    if load_encoder_weights:
+        logger.info(f'Loading weights from {load_encoder_weights_path}')
+        encoder_weights = torch.load(load_encoder_weights_path,
                                      map_location='cpu')
         encoder.load_state_dict(encoder_weights['encoder'])
 
@@ -328,7 +329,7 @@ def main(args, resume_preempt=False):
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
                     logger.info(f'[{epoch + 1}, {itr:5d}] '
                                 f'loss: {loss_meter.avg:.3f} '
-                                f'[acc: {acc_meter.avg:.2e}] '
+                                f'[acc: {acc_meter.avg:.3f}] '
                                 f'[wd: {_new_wd:.2e}] '
                                 f'[mem: {torch.cuda.max_memory_allocated() / 1024.**2:.2e}] '
                                 f'({time_meter.avg:.1f} ms)')
@@ -351,6 +352,7 @@ def main(args, resume_preempt=False):
 
         # -- Save Checkpoint after every epoch
         logger.info(f'avg. loss {loss_meter.avg:.3f}')
+        logger.info(f'avg. acc {acc_meter.avg:.3f}')
         logger.info(f'current lr {current_lr}')
         save_checkpoint(epoch+1)
 

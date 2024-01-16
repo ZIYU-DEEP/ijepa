@@ -19,13 +19,13 @@ meta:
   model_name: vit_huge
   read_checkpoint: null
   use_bfloat16: false
+  load_encoder_weights: true
+  load_encoder_weights_path: /localscratch/hsun409/logs/ijepa/cifar100_vith14/IN1K-vit.h.14-300e.pth.tar
 
 probe:
   out_feat_keys:
   - lastPOOL
   n_categories: 100
-  load_weights: false
-  load_weights_path: null
 
 optimization:
   weight_decay: 0.0005
