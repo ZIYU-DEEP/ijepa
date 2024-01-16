@@ -66,6 +66,35 @@ def load_checkpoint(
     return encoder, predictor, target_encoder, opt, scaler, epoch
 
 
+def load_checkpoint_prober(device,
+                           r_path,
+                           prober,
+                           opt,
+                           scaler):
+    try:
+        checkpoint = torch.load(r_path, map_location=torch.device('cpu'))
+        epoch = checkpoint['epoch']
+
+        # -- loading encoder
+        pretrained_dict = checkpoint['prober']
+        msg = prober.load_state_dict(pretrained_dict)
+        logger.info(f'loaded pretrained encoder from epoch {epoch} with msg: {msg}')
+
+        # -- loading optimizer
+        opt.load_state_dict(checkpoint['opt'])
+        if scaler is not None:
+            scaler.load_state_dict(checkpoint['scaler'])
+        logger.info(f'loaded optimizers from epoch {epoch}')
+        logger.info(f'read-path: {r_path}')
+        del checkpoint
+
+    except Exception as e:
+        logger.info(f'Encountered exception when loading checkpoint {e}')
+        epoch = 0
+
+    return prober, opt, scaler, epoch
+
+
 def init_model(
     device,
     patch_size=16,
@@ -157,7 +186,7 @@ def init_opt(
     return optimizer, scaler, scheduler, wd_scheduler
 
 
-def init_opt_linprobe(
+def init_opt_prober(
     prober,
     weight_decay: float=0.0005,
     momentum: float=0.9,

@@ -8,7 +8,7 @@ data:
 
 logging:
   folder: /localscratch/hsun409/logs/ijepa/cifar100_vitt14_ep5/
-  write_tag: jepa_cifar100
+  write_tag: linprobe_test
 
 meta:
   copy_data: false

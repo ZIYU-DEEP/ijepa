@@ -48,8 +48,10 @@ from src.datasets.cifar100 import make_cifar100
 
 from src.helper import (
     load_checkpoint,
+    load_checkpoint_prober,
     init_model,
-    init_opt)
+    init_opt,
+    init_opt_prober)
 from src.transforms import make_transforms
 
 # --
@@ -200,7 +202,6 @@ def main(args, resume_preempt=False):
     for p in encoder.parameters():
         p.requires_grad = False
 
-
     # SET THE LINEAR PROBING MODEL
     # -- set the in_dim
     in_dim = encoder.module.embed_dim
@@ -217,7 +218,7 @@ def main(args, resume_preempt=False):
 
     # SET THE OPTIMIZER, SCHEDULER
     # ############### TO MODIFY ####################################
-    optimizer, scaler, scheduler, wd_scheduler = init_opt_linprobe(
+    optimizer, scaler, scheduler, wd_scheduler = init_opt_prober(
         prober=prober,
         weight_decay=wd,
         momentum=momentum,
@@ -233,25 +234,22 @@ def main(args, resume_preempt=False):
 
     # -- load training checkpoint
     if load_model:
-        encoder, predictor, target_encoder, optimizer, scaler, start_epoch = load_checkpoint(
+        prober, optimizer, scaler, start_epoch = load_checkpoint_prober(
             device=device,
             r_path=load_path,
-            encoder=encoder,
-            predictor=predictor,
-            target_encoder=target_encoder,
+            prober=prober,
             opt=optimizer,
             scaler=scaler)
+
         for _ in range(start_epoch*ipe):
             scheduler.step()
             if wd_scheduler: wd_scheduler.step()
             next(momentum_scheduler)
             mask_collator.step()
 
-    def save_checkpoint(epoch):
+    def ckpoint(epoch):
         save_dict = {
-            'encoder': encoder.state_dict(),
-            'predictor': predictor.state_dict(),
-            'target_encoder': target_encoder.state_dict(),
+            'prober': prober.state_dict(),
             'opt': optimizer.state_dict(),
             'scaler': None if scaler is None else scaler.state_dict(),
             'epoch': epoch,
@@ -264,7 +262,6 @@ def main(args, resume_preempt=False):
             torch.save(save_dict, latest_path)
             if (epoch + 1) % checkpoint_freq == 0:
                 torch.save(save_dict, save_path.format(epoch=f'{epoch + 1}'))
-    # ############### TO MODIFY ####################################
 
     # -- TRAINING LOOP
     for epoch in range(start_epoch, num_epochs):
@@ -357,7 +354,7 @@ def main(args, resume_preempt=False):
 
         # -- Save Checkpoint after every epoch
         logger.info('avg. loss %.3f' % loss_meter.avg)
-        save_checkpoint(epoch+1)
+        ckpoint(epoch+1)
 
 if __name__ == "__main__":
     main()
