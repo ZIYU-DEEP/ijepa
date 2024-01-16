@@ -489,7 +489,16 @@ class VisionTransformer(nn.Module):
             if i >= len(self.blocks) - keep_last_n:
                 interms_buffer.append(x)
 
-        # Collect the desired features
+        # # Collect the desired features
+        # # Notice this is different from vissl
+        # output = None
+        # for name in names:
+        #     if name == "lastPOOL":
+        #         output = self.avg_pool(interms_buffer[-1])
+        #     elif name.startswith("concatPOOL"):
+        #         concat_features = torch.cat([self.avg_pool(layer) for layer in interms_buffer], dim=-1)
+        #         output = concat_features
+
         output = []
         for name in names:
             if name == "lastPOOL":
