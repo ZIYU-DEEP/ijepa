@@ -165,7 +165,6 @@ def init_opt_linprobe(
     batch_size: int=256,
     base_lr_value: float=0.01,
     base_lr_batch_size: int=256,
-    current_batch_size: int=128,
     milestones: list=None,
     gamma: float=0.1,
 ):

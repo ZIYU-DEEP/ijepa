@@ -86,24 +86,22 @@ def main(args, resume_preempt=False):
         torch.cuda.set_device(device)
 
     # -- DATA
-    batch_size = args['data']['batch_size']
-    pin_mem = args['data']['pin_mem']
-    num_workers = args['data']['num_workers']
-    root_path = args['data']['root_path']
-    image_folder = args['data']['image_folder']
-    crop_size = args['data']['crop_size']
+    batch_size = int(args['data']['batch_size'])
+    pin_mem = bool(args['data']['pin_mem'])
+    num_workers = int(args['data']['num_workers'])
+    root_path = str(args['data']['root_path'])
+    image_folder = str(args['data']['image_folder'])
+    crop_size = int(args['data']['crop_size'])
     # --
 
     # -- OPTIMIZATION
-    ema = args['optimization']['ema']
-    ipe_scale = args['optimization']['ipe_scale']  # scheduler scale factor (def: 1.0)
     wd = float(args['optimization']['weight_decay'])
-    final_wd = float(args['optimization']['final_weight_decay'])
-    num_epochs = args['optimization']['epochs']
-    warmup = args['optimization']['warmup']
-    start_lr = args['optimization']['start_lr']
-    lr = args['optimization']['lr']
-    final_lr = args['optimization']['final_lr']
+    momentum = float(args['optimization']['momentum'])
+    nesterov = bool(args['optimization']['nesterov'])
+    base_lr_value = float(args['optimization']['base_lr_value'])
+    base_lr_batch_size = int(args['optimization']['base_lr_value'])
+    milestones = list(args['optimization']['milestones'])
+    gamma = float(args['optimization']['gamma'])
 
     # -- LOGGING
     folder = args['logging']['folder']
@@ -187,21 +185,6 @@ def main(args, resume_preempt=False):
     # ########################################
     # Below is the temp code
     # ########################################
-    # TO MODIFY THIS TO MATCH THE SETTING OF VISSL
-    # optimizer, scaler, scheduler, wd_scheduler = init_opt(
-    #     encoder=encoder,
-    #     predictor=predictor,
-    #     wd=wd,
-    #     final_wd=final_wd,
-    #     start_lr=start_lr,
-    #     ref_lr=lr,
-    #     final_lr=final_lr,
-    #     iterations_per_epoch=ipe,
-    #     warmup=warmup,
-    #     num_epochs=num_epochs,
-    #     ipe_scale=ipe_scale,
-    #     use_bfloat16=use_bfloat16)
-
     # SET THE ENCODER
     # -- set the model
     encoder = DistributedDataParallel(encoder)
@@ -234,7 +217,18 @@ def main(args, resume_preempt=False):
 
     # SET THE OPTIMIZER, SCHEDULER
     # ############### TO MODIFY ####################################
-    optimizer, scaler, scheduler, wd_scheduler = init_opt_linprobe()
+    optimizer, scaler, scheduler, wd_scheduler = init_opt_linprobe(
+        prober=prober,
+        weight_decay=wd,
+        momentum=momentum,
+        nesterov=nesterov,
+        batch_size=batch_size,
+        base_lr_value=base_lr_value,
+        base_lr_batch_size=base_lr_batch_size,
+        current_batch_size=current_batch_size,
+        milestones=milestones,
+        gamma=gamma)
+
     prober = DistributedDataParallel(prober, static_graph=True)
 
     # -- load training checkpoint
@@ -249,7 +243,7 @@ def main(args, resume_preempt=False):
             scaler=scaler)
         for _ in range(start_epoch*ipe):
             scheduler.step()
-            wd_scheduler.step()
+            if wd_scheduler: wd_scheduler.step()
             next(momentum_scheduler)
             mask_collator.step()
 
@@ -295,7 +289,7 @@ def main(args, resume_preempt=False):
             def train_step():
                 # Set lr and weight decay
                 _new_lr = scheduler.step()
-                _new_wd = wd_scheduler.step()
+                _new_wd = wd_scheduler.step() if wd_scheduler else wd
                 # --
 
                 def get_feature():
@@ -326,7 +320,7 @@ def main(args, resume_preempt=False):
 
                 return (float(loss), _new_lr, _new_wd, grad_stats)
 
-            (loss, _new_lr, _new_wd, grad_stats), etime = gpu_timer(train_step)
+            (loss, _new_lr, grad_stats), etime = gpu_timer(train_step)
             loss_meter.update(loss)
             time_meter.update(etime)
             acc_meter.update(acc)
@@ -337,7 +331,8 @@ def main(args, resume_preempt=False):
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
                     logger.info('[%d, %5d] loss: %.3f '
                                 '[acc: %.2e] '
-                                '[wd: %.2e] [lr: %.2e] '
+                                '[wd: %.2e] '
+                                '[lr: %.2e] '
                                 '[mem: %.2e] '
                                 '(%.1f ms)'
                                 % (epoch + 1, itr,
@@ -345,7 +340,7 @@ def main(args, resume_preempt=False):
                                    acc_meter.avg,
                                    _new_wd,
                                    _new_lr,
-                                   torch.cuda.max_memory_allocated() / 1024.**2,
+                                   torch.cuda.max_memory_allocated() / 1024.** 2,
                                    time_meter.avg))
 
                     if grad_stats is not None:
