@@ -330,20 +330,14 @@ def main(args, resume_preempt=False):
             def log_stats():
                 csv_logger.log(epoch + 1, itr, loss, acc, etime)
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
-                    logger.info('[%d, %5d] '
-                                'loss: %.3f '
-                                '[acc: %.2e] '
-                                '[wd: %.2e] '
-                                '[lr: %.2e] '
-                                '[mem: %.2e] '
-                                '(%.1f ms)'
-                                % (epoch + 1, itr,
-                                   loss_meter.avg,
-                                   acc_meter.avg,
-                                   _new_wd,
-                                   _new_lr,
-                                   torch.cuda.max_memory_allocated() / 1024.** 2,
-                                   time_meter.avg))
+                    logger.info(f'[{epoch + 1}, {itr:5d}] '
+                                f'loss: {loss_meter.avg:.3f} '
+                                f'[acc: {acc_meter.avg:.2e}] '
+                                f'[wd: {_new_wd:.2e}] '
+                                f'[lr: {_new_lr:.2e}] '
+                                f'[mem: {torch.cuda.max_memory_allocated() / 1024.**2:.2e}] '
+                                f'({time_meter.avg:.1f} ms)')
+
 
                     if grad_stats is not None:
                         logger.info('[%d, %5d] grad_stats: [%.2e %.2e] (%.2e, %.2e)'
