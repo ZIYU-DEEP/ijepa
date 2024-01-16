@@ -10,6 +10,9 @@ logging:
   folder: /localscratch/hsun409/logs/ijepa/cifar100_vitt14/
   write_tag: linprobe_test
 
+mask:
+  patch_size: 14
+
 meta:
   copy_data: false
   load_checkpoint: false
@@ -32,3 +35,4 @@ optimization:
   base_lr_batch_size: 256
   milestones: [8, 16, 24]
   gamma: 0.1
+  base_epochs: 28

@@ -93,7 +93,9 @@ def main(args, resume_preempt=False):
     root_path = str(args['data']['root_path'])
     image_folder = str(args['data']['image_folder'])
     crop_size = int(args['data']['crop_size'])
-    # --
+
+    # -- MASK
+    patch_size = int(args['mask']['patch_size'])
 
     # -- OPTIMIZATION
     wd = float(args['optimization']['weight_decay'])
@@ -103,6 +105,8 @@ def main(args, resume_preempt=False):
     base_lr_batch_size = int(args['optimization']['base_lr_value'])
     milestones = list(args['optimization']['milestones'])
     gamma = float(args['optimization']['gamma'])
+    base_epochs = int(args['optimization']['base_epochs'])
+    num_epochs = base_epochs * int(base_batch_size / batch_size)
 
     # -- LOGGING
     folder = args['logging']['folder']
@@ -243,8 +247,6 @@ def main(args, resume_preempt=False):
         for _ in range(start_epoch*ipe):
             scheduler.step()
             if wd_scheduler: wd_scheduler.step()
-            next(momentum_scheduler)
-            mask_collator.step()
 
     def ckpoint(epoch):
         save_dict = {
@@ -314,9 +316,9 @@ def main(args, resume_preempt=False):
                 grad_stats = None
                 optimizer.zero_grad()
 
-                return (float(loss), _new_lr, _new_wd, grad_stats)
+                return (float(loss), float(acc), _new_lr, _new_wd, grad_stats)
 
-            (loss, _new_lr, grad_stats), etime = gpu_timer(train_step)
+            (loss, acc, _new_lr, grad_stats), etime = gpu_timer(train_step)
             loss_meter.update(loss)
             time_meter.update(etime)
             acc_meter.update(acc)
