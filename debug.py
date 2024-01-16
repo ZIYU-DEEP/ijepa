@@ -62,7 +62,6 @@ torch.backends.cudnn.benchmark = True
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger()
 
-
 def main(args, resume_preempt=False):
     # ----------------------------------------------------------------------- #
     #  PASSED IN PARAMS FROM CONFIG FILE
@@ -210,144 +209,92 @@ def main(args, resume_preempt=False):
         if key.startswith('lastPOOL'):
             in_dim = encoder.module.embed_dim
 
+        if key.startswith('direct'):
+            in_dim = encoder.module.embed_dim
+
     # -- set the model
     prober = torch.nn.Linear(in_dim, n_categories).to(device)
 
     # SET THE OPTIMIZER, SCHEDULER
     # ############### TO MODIFY ####################################
-    optimizer, scaler, scheduler, wd_scheduler = init_opt_prober(
-        prober=prober,
-        weight_decay=wd,
-        momentum=momentum,
-        nesterov=nesterov,
-        batch_size=batch_size,
-        base_lr_value=base_lr_value,
-        base_lr_batch_size=base_lr_batch_size,
-        milestones=milestones,
-        gamma=gamma,
-        use_bfloat16=use_bfloat16)
+    optimizer = torch.optim.AdamW(prober.parameters(),
+                                  lr=1e-3,
+                                  weight_decay=1e-4,
+                                  amsgrad=True)
 
     prober = DistributedDataParallel(prober, static_graph=True)
 
-    start_epoch = 0
-    # -- load training checkpoint
-    if load_model:
-        # Load the presaved things
-        prober, optimizer, scaler, start_epoch = load_checkpoint_prober(
-            device=device,
-            r_path=load_path,
-            prober=prober,
-            opt=optimizer,
-            scaler=scaler)
+    encoder.eval()
+    for epoch in range(num_epochs):
+        epoch_scores = []
 
-        # Step the scheduler
-        for _ in range(start_epoch * ipe):
-            scheduler.step()
-            if wd_scheduler: wd_scheduler.step()
+        for x, y in tqdm(supervised_loader):
+            x, y = x.to(device), y.to(device)
 
-    def save_checkpoint(epoch):
-        save_dict = {
-            'prober': prober.state_dict(),
-            'opt': optimizer.state_dict(),
-            'scaler': None if scaler is None else scaler.state_dict(),
-            'epoch': epoch,
-            'loss': loss_meter.avg,
-            'batch_size': batch_size,
-            'world_size': world_size,
-            'lr': base_lr_value
-        }
-        if rank == 0:
-            torch.save(save_dict, latest_path)
-            if (epoch + 1) % checkpoint_freq == 0:
-                torch.save(save_dict, save_path.format(epoch=f'{epoch + 1}'))
+            with torch.no_grad():
+                features = encoder(x)
 
-    # -- TRAINING LOOP
-    for epoch in range(start_epoch, num_epochs):
-        logger.info('Epoch %d' % (epoch + 1))
+            optimizer.zero_grad()
+            logits = prober(features)
+            loss = torch.nn.functional.cross_entropy(logits, y)
+            top1_acc = (logits.argmax(dim=1) == y).float().mean()
+            epoch_scores.append(top1_acc.item())
+            print(np.mean(epoch_scores))
+            loss.backward()
+            optimizer.step()
 
-        # -- update distributed-data-loader epoch
-        supervised_sampler.set_epoch(epoch)
+        print(f"\tVal Epoch {epoch + 1} - score: {np.mean(epoch_scores)}")
 
-        loss_meter = AverageMeter()
-        time_meter = AverageMeter()
-        acc_meter = AverageMeter()
-
-        for itr, (x, y) in enumerate(supervised_loader):
-
-            x = x.to(device, non_blocking=True)
-            y = y.to(device, non_blocking=True)
-
-            def train_step():
-                # Set lr and weight decay
-                _new_wd = wd_scheduler.step() if wd_scheduler else wd
-                # --
-
-                def get_feature():
-                    with torch.no_grad():
-                        features = encoder(x,
-                            out_feat_keys=out_feat_keys)[0].reshape(- 1, in_dim)
-                    return features
-
-                # Step 1. Forward
-                with torch.cuda.amp.autocast(dtype=torch.bfloat16, enabled=use_bfloat16):
-                    features = get_feature()
-                    optimizer.zero_grad()
-                    logits = prober(features)
-                    loss = torch.nn.functional.cross_entropy(logits, y)
-                    acc = (logits.argmax(dim=1) == y).float().mean()
-
-                #  Step 2. Backward & step
-                if use_bfloat16:
-                    scaler.scale(loss).backward()
-                    scaler.step(optimizer)
-                    scaler.update()
-                else:
-                    loss.backward()
-                    optimizer.step()
-
-
-                grad_stats = None
-                optimizer.zero_grad()
-
-                return (float(loss), float(acc), _new_wd, grad_stats)
-
-            (loss, acc, _new_wd, grad_stats), etime = gpu_timer(train_step)
-            loss_meter.update(loss)
-            time_meter.update(etime)
-            acc_meter.update(acc)
-
-            # -- Logging
-            def log_stats():
-                csv_logger.log(epoch + 1, itr, loss, acc, etime)
-                if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
-                    logger.info(f'[{epoch + 1}, {itr:5d}] '
-                                f'loss: {loss_meter.avg:.3f} '
-                                f'[acc: {acc_meter.avg:.3f}] '
-                                f'[wd: {_new_wd:.2e}] '
-                                f'[mem: {torch.cuda.max_memory_allocated() / 1024.**2:.2e}] '
-                                f'({time_meter.avg:.1f} ms)')
-
-                    if grad_stats is not None:
-                        logger.info('[%d, %5d] grad_stats: [%.2e %.2e] (%.2e, %.2e)'
-                                    % (epoch + 1, itr,
-                                       grad_stats.first_layer,
-                                       grad_stats.last_layer,
-                                       grad_stats.min,
-                                       grad_stats.max))
-
-            log_stats()
-
-            assert not np.isnan(loss), 'loss is nan'
-
-        # lr update after each epoch as this is multistep
-        scheduler.step()
-        current_lr = scheduler.get_last_lr()[0]
-
-        # -- Save Checkpoint after every epoch
-        logger.info(f'avg. loss {loss_meter.avg:.3f}')
-        logger.info(f'avg. acc {acc_meter.avg:.3f}')
-        logger.info(f'current lr {current_lr}')
-        save_checkpoint(epoch+1)
 
 if __name__ == "__main__":
     main()
+
+# def linear_probe_test(model,
+#                       data_loader,
+#                       device,
+#                       n_categories=100,
+#                       probe_lr=1e-3,
+#                       probe_weight_decay=1e-4,
+#                       val_epochs=5,
+#                       batch_size=8):
+#     model.eval()
+#
+#     # Use the embed_dim as the input dimension for the linear layer
+#     linear_probe = torch.nn.Linear(model.module.embed_dim, n_categories).to(device)
+#
+#     optimizer = torch.optim.AdamW(linear_probe.parameters(),
+#                                   lr=probe_lr,
+#                                   weight_decay=probe_weight_decay,
+#                                   amsgrad=True)
+#
+#     for epoch in range(val_epochs):
+#         epoch_scores = []
+#
+#         for x, y in tqdm(data_loader):
+#             x = x.to(device)
+#             y = y.to(device)
+#
+#             with torch.no_grad():
+#                 # Forward pass through the model and get the output from the last layer
+#                 # Assuming the output is in the form (batch_size, num_patches, embed_dim)
+#                 features = model(x)
+#                 # Take the mean over the num_patches dimension if necessary
+#                 if features.dim() == 3:
+#                     features = features.mean(dim=1)
+#
+#             optimizer.zero_grad()
+#             logits = linear_probe(features)
+#
+#             loss = torch.nn.functional.cross_entropy(logits, y)
+#             top1_acc = (logits.argmax(dim=1) == y).float().mean()
+#             epoch_scores.append(top1_acc.item())
+#             print(np.mean(epoch_scores))
+#
+#             loss.backward()
+#             optimizer.step()
+#
+#         print(f"\tVal Epoch {epoch + 1} - score: {np.mean(epoch_scores)}")
+#
+#     model.train()
+#
+#     return model
