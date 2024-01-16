@@ -220,6 +220,10 @@ def main(args, resume_preempt=False):
 
     # SET THE OPTIMIZER, SCHEDULER
     # ############### TO MODIFY ####################################
+    print('BEFORE EXECUTION')
+    print(f'batch_size: {batch_size}')
+    print(f'batch_size: {base_lr_value}')
+    print(f'batch_size: {base_lr_batch_size}')
     optimizer, scaler, scheduler, wd_scheduler = init_opt_prober(
         prober=prober,
         weight_decay=wd,
