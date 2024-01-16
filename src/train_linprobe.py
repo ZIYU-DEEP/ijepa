@@ -281,25 +281,15 @@ def main(args, resume_preempt=False):
 
         loss_meter = AverageMeter()
         time_meter = AverageMeter()
+        acc_meter = AverageMeter()
 
         for itr, (x, y) in enumerate(supervised_loader):
 
             # ###############################
-            x, y = x.to(device), y.to(device)
+            x = x.to(device, non_blocking=true)
+            y = y.to(device, non_blocking=true)
 
-            with torch.no_grad():
-                features = encoder(x, out_feat_keys=out_feat_keys)[0].reshape(- 1, in_dim)
 
-            optimizer.zero_grad()
-            logits = prober(features)
-
-            loss = torch.nn.functional.cross_entropy(logits, y)
-
-            top1_acc = (logits.argmax(dim=1) == y).float().mean()
-            epoch_scores.append(top1_acc.item())
-
-            loss.backward()
-            optimizer.step()
             #################################
 
             def train_step():
@@ -308,12 +298,19 @@ def main(args, resume_preempt=False):
                 _new_wd = wd_scheduler.step()
                 # --
 
+                def get_feature():
+                    with torch.no_grad():
+                        features = encoder(x,
+                            out_feat_keys=out_feat_keys)[0].reshape(- 1, in_dim)
+                    return features
 
                 # Step 1. Forward
                 with torch.cuda.amp.autocast(dtype=torch.bfloat16, enabled=use_bfloat16):
-                    h = forward_target()
-                    z = forward_context()
-                    loss = loss_fn(z, h)
+                    features = get_feature()
+                    optimizer.zero_grad()
+                    logits = prober(features)
+                    loss = torch.nn.functional.cross_entropy(logits, y)
+                    acc = (logits.argmax(dim=1) == y).float().mean()
 
                 #  Step 2. Backward & step
                 if use_bfloat16:
@@ -323,33 +320,29 @@ def main(args, resume_preempt=False):
                 else:
                     loss.backward()
                     optimizer.step()
-                grad_stats = grad_logger(encoder.named_parameters())
+
+                grad_stats = None
                 optimizer.zero_grad()
 
-                # Step 3. momentum update of target encoder
-                with torch.no_grad():
-                    m = next(momentum_scheduler)
-                    for param_q, param_k in zip(encoder.parameters(), target_encoder.parameters()):
-                        param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
-
                 return (float(loss), _new_lr, _new_wd, grad_stats)
+
             (loss, _new_lr, _new_wd, grad_stats), etime = gpu_timer(train_step)
             loss_meter.update(loss)
             time_meter.update(etime)
+            acc_meter.update(acc)
 
             # -- Logging
             def log_stats():
-                csv_logger.log(epoch + 1, itr, loss, maskA_meter.val, maskB_meter.val, etime)
+                csv_logger.log(epoch + 1, itr, loss, acc, etime)
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
                     logger.info('[%d, %5d] loss: %.3f '
-                                'masks: %.1f %.1f '
+                                '[acc: %.2e] '
                                 '[wd: %.2e] [lr: %.2e] '
                                 '[mem: %.2e] '
                                 '(%.1f ms)'
                                 % (epoch + 1, itr,
                                    loss_meter.avg,
-                                   maskA_meter.avg,
-                                   maskB_meter.avg,
+                                   acc_meter.avg,
                                    _new_wd,
                                    _new_lr,
                                    torch.cuda.max_memory_allocated() / 1024.**2,
@@ -371,67 +364,5 @@ def main(args, resume_preempt=False):
         logger.info('avg. loss %.3f' % loss_meter.avg)
         save_checkpoint(epoch+1)
 
-
-    def linear_probe_test(model,
-                          data_loader,
-                          device,
-                          n_categories=100,
-                          probe_lr=1e-3,
-                          probe_weight_decay=1e-4,
-                          val_epochs=1,
-                          out_feat_keys=['lastPOOL']):
-
-        # Set the eval model
-        for _, p in model.named_parameters():
-            p.requires_grad = False
-
-        model.eval()
-
-        # Use the embed_dim as the input dimension for the linear layer
-        # Set the correct size
-        in_dim = model.module.embed_dim
-        for key in out_feat_keys:
-            if key.startswith('concatPOOL'):
-                v = int(key.replace('concatPOOL', ''))
-                in_dim = model.module.embed_dim * v
-
-            if key.startswith('lastPOOL'):
-                in_dim = model.module.embed_dim
-
-        linear_probe = torch.nn.Linear(in_dim, n_categories).to(device)
-
-        optimizer = torch.optim.AdamW(linear_probe.parameters(),
-                                      lr=probe_lr,
-                                      weight_decay=probe_weight_decay,
-                                      amsgrad=True)
-
-        for epoch in range(val_epochs):
-            epoch_scores = []
-
-            for x, y in tqdm(data_loader):
-                x = x.to(device)
-                y = y.to(device)
-
-                with torch.no_grad():
-                    # Forward pass through the model and get the output from the last layer
-                    # Assuming the output is in the form (batch_size, num_patches, embed_dim)
-                    features = model(x,
-                                     out_feat_keys=out_feat_keys)[0].reshape(-1, in_dim)
-                    # Take the mean over the num_patches dimension if necessary
-                    if features.dim() == 3:
-                        features = features.mean(dim=1)
-
-                optimizer.zero_grad()
-                logits = linear_probe(features)
-
-                loss = torch.nn.functional.cross_entropy(logits, y)
-                top1_acc = (logits.argmax(dim=1) == y).float().mean()
-                epoch_scores.append(top1_acc.item())
-                print(np.mean(epoch_scores))
-
-                loss.backward()
-                optimizer.step()
-
-            print(f"\tVal Epoch {epoch + 1} - score: {np.mean(epoch_scores)}")
-
-        return model
+if __name__ == "__main__":
+    main()
