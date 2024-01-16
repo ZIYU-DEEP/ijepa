@@ -66,156 +66,161 @@ torch.backends.cudnn.benchmark = True
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger()
 
-# ----------------------------------------------------------------------- #
-#  PASSED IN PARAMS FROM CONFIG FILE
-# ----------------------------------------------------------------------- #
 
-# -- META
-use_bfloat16 = args['meta']['use_bfloat16']
-model_name = args['meta']['model_name']
-load_model = args['meta']['load_checkpoint'] or resume_preempt
-r_file = args['meta']['read_checkpoint']
-copy_data = args['meta']['copy_data']
-pred_depth = args['meta']['pred_depth']
-pred_emb_dim = args['meta']['pred_emb_dim']
-if not torch.cuda.is_available():
-    device = torch.device('cpu')
-else:
-    device = torch.device('cuda:0')
-    torch.cuda.set_device(device)
+def main(args, resume_preempt=False):
+    # ----------------------------------------------------------------------- #
+    #  PASSED IN PARAMS FROM CONFIG FILE
+    # ----------------------------------------------------------------------- #
 
-# -- DATA
-use_gaussian_blur = args['data']['use_gaussian_blur']
-use_horizontal_flip = args['data']['use_horizontal_flip']
-use_color_distortion = args['data']['use_color_distortion']
-color_jitter = args['data']['color_jitter_strength']
-# --
-batch_size = args['data']['batch_size']
-pin_mem = args['data']['pin_mem']
-num_workers = args['data']['num_workers']
-root_path = args['data']['root_path']
-image_folder = args['data']['image_folder']
-crop_size = args['data']['crop_size']
-crop_scale = args['data']['crop_scale']
-# --
+    # -- META
+    use_bfloat16 = args['meta']['use_bfloat16']
+    model_name = args['meta']['model_name']
+    load_model = args['meta']['load_checkpoint'] or resume_preempt
+    r_file = args['meta']['read_checkpoint']
+    pred_depth = args['meta']['pred_depth']
+    pred_emb_dim = args['meta']['pred_emb_dim']
+    if not torch.cuda.is_available():
+        device = torch.device('cpu')
+    else:
+        device = torch.device('cuda:0')
+        torch.cuda.set_device(device)
 
-# -- MASK
-allow_overlap = args['mask']['allow_overlap']  # whether to allow overlap b/w context and target blocks
-patch_size = args['mask']['patch_size']  # patch-size for model training
-num_enc_masks = args['mask']['num_enc_masks']  # number of context blocks
-min_keep = args['mask']['min_keep']  # min number of patches in context block
-enc_mask_scale = args['mask']['enc_mask_scale']  # scale of context blocks
-num_pred_masks = args['mask']['num_pred_masks']  # number of target blocks
-pred_mask_scale = args['mask']['pred_mask_scale']  # scale of target blocks
-aspect_ratio = args['mask']['aspect_ratio']  # aspect ratio of target blocks
-# --
+    # -- DATA
+    batch_size = args['data']['batch_size']
+    pin_mem = args['data']['pin_mem']
+    num_workers = args['data']['num_workers']
+    root_path = args['data']['root_path']
+    image_folder = args['data']['image_folder']
+    crop_size = args['data']['crop_size']
+    # --
 
-# -- OPTIMIZATION
-ema = args['optimization']['ema']
-ipe_scale = args['optimization']['ipe_scale']  # scheduler scale factor (def: 1.0)
-wd = float(args['optimization']['weight_decay'])
-final_wd = float(args['optimization']['final_weight_decay'])
-num_epochs = args['optimization']['epochs']
-warmup = args['optimization']['warmup']
-start_lr = args['optimization']['start_lr']
-lr = args['optimization']['lr']
-final_lr = args['optimization']['final_lr']
+    # -- OPTIMIZATION
+    ema = args['optimization']['ema']
+    ipe_scale = args['optimization']['ipe_scale']  # scheduler scale factor (def: 1.0)
+    wd = float(args['optimization']['weight_decay'])
+    final_wd = float(args['optimization']['final_weight_decay'])
+    num_epochs = args['optimization']['epochs']
+    warmup = args['optimization']['warmup']
+    start_lr = args['optimization']['start_lr']
+    lr = args['optimization']['lr']
+    final_lr = args['optimization']['final_lr']
 
-# -- LOGGING
-folder = args['logging']['folder']
-tag = args['logging']['write_tag']
+    # -- LOGGING
+    folder = args['logging']['folder']
+    tag = args['logging']['write_tag']
 
-dump = os.path.join(folder, 'params-ijepa.yaml')
-with open(dump, 'w+') as f:
-    yaml.dump(args, f)
-# ----------------------------------------------------------------------- #
+    # -- PROBE
+    out_feat_keys = args['probe']['out_feat_keys']
+    n_categories = args['probe']['n_categories']
+    load_weights = args['probe']['load_weights']
+    load_weights_path = args['probe']['load_weights_path']
 
-try:
-    mp.set_start_method('spawn')
-except Exception:
-    print('pass!')
-    pass
+    dump = os.path.join(folder, 'params-ijepa.yaml')
+    with open(dump, 'w+') as f:
+        yaml.dump(args, f)
+    # ----------------------------------------------------------------------- #
 
-# -- init torch distributed backend
-world_size, rank = init_distributed()
-logger.info(f'Initialized (rank/world-size) {rank}/{world_size}')
-if rank > 0:
-    logger.setLevel(logging.ERROR)
+    try:
+        mp.set_start_method('spawn')
+    except Exception:
+        print('pass!')
+        pass
 
-# -- log/checkpointing paths
-log_file = os.path.join(folder, f'{tag}_r{rank}.csv')
-save_path = os.path.join(folder, f'{tag}' + '-ep{epoch}.pth.tar')
-latest_path = os.path.join(folder, f'{tag}-latest.pth.tar')
-load_path = None
-if load_model:
-    load_path = os.path.join(folder, r_file) if r_file is not None else latest_path
+    # -- init torch distributed backend
+    world_size, rank = init_distributed()
+    logger.info(f'Initialized (rank/world-size) {rank}/{world_size}')
+    if rank > 0:
+        logger.setLevel(logging.ERROR)
 
-# -- make csv_logger
-csv_logger = CSVLogger(log_file,
-                        ('%d', 'epoch'),
-                        ('%d', 'itr'),
-                        ('%.5f', 'loss'),
-                        ('%.5f', 'mask-A'),
-                        ('%.5f', 'mask-B'),
-                        ('%d', 'time (ms)'))
+    # -- log/checkpointing paths
+    log_file = os.path.join(folder, f'{tag}_r{rank}.csv')
+    save_path = os.path.join(folder, f'{tag}' + '-ep{epoch}.pth.tar')
+    latest_path = os.path.join(folder, f'{tag}-latest.pth.tar')
+    load_path = None
+    if load_model:
+        load_path = os.path.join(folder, r_file) if r_file is not None else latest_path
 
-# -- init model
-encoder, _ = init_model(
-    device=device,
-    patch_size=patch_size,
-    crop_size=crop_size,
-    pred_depth=pred_depth,
-    pred_emb_dim=pred_emb_dim,
-    model_name=model_name)
+    # -- make csv_logger
+    csv_logger = CSVLogger(log_file,
+                            ('%d', 'epoch'),
+                            ('%d', 'itr'),
+                            ('%.5f', 'loss'),
+                            ('%.5f', 'mask-A'),
+                            ('%.5f', 'mask-B'),
+                            ('%d', 'time (ms)'))
 
-transform_train = transforms.Compose([
-    transforms.Resize(crop_size),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize((0.485, 0.456, 0.406),
-                         (0.229, 0.224, 0.225))])
+    # -- init model
+    encoder, _ = init_model(
+        device=device,
+        patch_size=patch_size,
+        crop_size=crop_size,
+        pred_depth=pred_depth,
+        pred_emb_dim=pred_emb_dim,
+        model_name=model_name)
 
-transform_test = transforms.Compose([
-    transforms.Resize(crop_size),
-    transforms.ToTensor(),
-    transforms.Normalize((0.485, 0.456, 0.406),
-                         (0.229, 0.224, 0.225))])  
+    transform_train = transforms.Compose([
+        transforms.Resize(crop_size),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize((0.485, 0.456, 0.406),
+                             (0.229, 0.224, 0.225))])
 
-_, supervised_loader, supervised_sampler = make_cifar100(
-        transform=transform_train,
-        batch_size=batch_size,
-        pin_mem=pin_mem,
-        num_workers=num_workers,
-        world_size=world_size,
-        rank=rank,
-        root_path=root_path,
-        image_folder=image_folder,
-        training=True,
-        drop_last=True)
-ipe = len(supervised_loader)
+    transform_test = transforms.Compose([
+        transforms.Resize(crop_size),
+        transforms.ToTensor(),
+        transforms.Normalize((0.485, 0.456, 0.406),
+                             (0.229, 0.224, 0.225))])
 
-import torch
-import numpy as np
-from tqdm import tqdm
+    _, supervised_loader, supervised_sampler = make_cifar100(
+            transform=transform_train,
+            batch_size=batch_size,
+            pin_mem=pin_mem,
+            num_workers=num_workers,
+            world_size=world_size,
+            rank=rank,
+            root_path=root_path,
+            image_folder=image_folder,
+            training=True,
+            drop_last=True)
+    ipe = len(supervised_loader)
 
-def linear_probe_test(model,
-                      data_loader, 
-                      device, 
-                      n_categories=100,
-                      probe_lr=1e-3, 
-                      probe_weight_decay=1e-4, 
-                      val_epochs=1, 
-                      out_feat_keys=['lastPOOL']):
-    
-    # Set the eval model
-    for _, p in model.named_parameters():
+    # ########################################
+    # Below is the temp code
+    # ########################################
+    # TO MODIFY THIS TO MATCH THE SETTING OF VISSL
+    # optimizer, scaler, scheduler, wd_scheduler = init_opt(
+    #     encoder=encoder,
+    #     predictor=predictor,
+    #     wd=wd,
+    #     final_wd=final_wd,
+    #     start_lr=start_lr,
+    #     ref_lr=lr,
+    #     final_lr=final_lr,
+    #     iterations_per_epoch=ipe,
+    #     warmup=warmup,
+    #     num_epochs=num_epochs,
+    #     ipe_scale=ipe_scale,
+    #     use_bfloat16=use_bfloat16)
+
+    # SET THE ENCODER
+    # -- set the model
+    encoder = DistributedDataParallel(encoder)
+
+    # -- load the weights
+    if load_weights:
+        encoder_weights = torch.load(load_weights_path,
+                                     map_location='cpu')
+        encoder.load_state_dict(encoder_weights['encoder'])
+
+    # -- set it to eval mode
+    encoder.eval()
+    for p in encoder.parameters():
         p.requires_grad = False
-    
-    model.eval()
 
-    # Use the embed_dim as the input dimension for the linear layer
-    # Set the correct size 
-    in_dim = model.module.embed_dim
+
+    # SET THE LINEAR PROBING MODEL
+    # -- set the in_dim
+    in_dim = encoder.module.embed_dim
     for key in out_feat_keys:
         if key.startswith('concatPOOL'):
             v = int(key.replace('concatPOOL', ''))
@@ -224,40 +229,209 @@ def linear_probe_test(model,
         if key.startswith('lastPOOL'):
             in_dim = model.module.embed_dim
 
-    linear_probe = torch.nn.Linear(in_dim, n_categories).to(device)
+    # -- set the model
+    prober = torch.nn.Linear(in_dim, n_categories).to(device)
 
-    optimizer = torch.optim.AdamW(linear_probe.parameters(), 
-                                  lr=probe_lr, 
-                                  weight_decay=probe_weight_decay, 
-                                  amsgrad=True)
+    # SET THE OPTIMIZER, SCHEDULER
+    # ############### TO MODIFY ####################################
+    optimizer, scaler, scheduler, wd_scheduler = init_opt_linprobe()
+    prober = DistributedDataParallel(prober, static_graph=True)
 
-    for epoch in range(val_epochs):
-        epoch_scores = []
+    # -- load training checkpoint
+    if load_model:
+        encoder, predictor, target_encoder, optimizer, scaler, start_epoch = load_checkpoint(
+            device=device,
+            r_path=load_path,
+            encoder=encoder,
+            predictor=predictor,
+            target_encoder=target_encoder,
+            opt=optimizer,
+            scaler=scaler)
+        for _ in range(start_epoch*ipe):
+            scheduler.step()
+            wd_scheduler.step()
+            next(momentum_scheduler)
+            mask_collator.step()
 
-        for x, y in tqdm(data_loader):
-            x = x.to(device)
-            y = y.to(device)
+    def save_checkpoint(epoch):
+        save_dict = {
+            'encoder': encoder.state_dict(),
+            'predictor': predictor.state_dict(),
+            'target_encoder': target_encoder.state_dict(),
+            'opt': optimizer.state_dict(),
+            'scaler': None if scaler is None else scaler.state_dict(),
+            'epoch': epoch,
+            'loss': loss_meter.avg,
+            'batch_size': batch_size,
+            'world_size': world_size,
+            'lr': lr
+        }
+        if rank == 0:
+            torch.save(save_dict, latest_path)
+            if (epoch + 1) % checkpoint_freq == 0:
+                torch.save(save_dict, save_path.format(epoch=f'{epoch + 1}'))
+    # ############### TO MODIFY ####################################
+
+    # -- TRAINING LOOP
+    for epoch in range(start_epoch, num_epochs):
+        logger.info('Epoch %d' % (epoch + 1))
+
+        # -- update distributed-data-loader epoch
+        supervised_sampler.set_epoch(epoch)
+
+        loss_meter = AverageMeter()
+        time_meter = AverageMeter()
+
+        for itr, (x, y) in enumerate(supervised_loader):
+
+            # ###############################
+            x, y = x.to(device), y.to(device)
 
             with torch.no_grad():
-                # Forward pass through the model and get the output from the last layer
-                # Assuming the output is in the form (batch_size, num_patches, embed_dim)
-                features = model(x, 
-                                 out_feat_keys=out_feat_keys)[0].reshape(-1, in_dim)
-                # Take the mean over the num_patches dimension if necessary
-                if features.dim() == 3:
-                    features = features.mean(dim=1)
+                features = encoder(x, out_feat_keys=out_feat_keys)[0].reshape(- 1, in_dim)
 
             optimizer.zero_grad()
-            logits = linear_probe(features)
+            logits = prober(features)
 
             loss = torch.nn.functional.cross_entropy(logits, y)
+
             top1_acc = (logits.argmax(dim=1) == y).float().mean()
             epoch_scores.append(top1_acc.item())
-            print(np.mean(epoch_scores))
 
             loss.backward()
             optimizer.step()
+            #################################
 
-        print(f"\tVal Epoch {epoch + 1} - score: {np.mean(epoch_scores)}")
+            def train_step():
+                # Set lr and weight decay
+                _new_lr = scheduler.step()
+                _new_wd = wd_scheduler.step()
+                # --
 
-    return model
+
+                # Step 1. Forward
+                with torch.cuda.amp.autocast(dtype=torch.bfloat16, enabled=use_bfloat16):
+                    h = forward_target()
+                    z = forward_context()
+                    loss = loss_fn(z, h)
+
+                #  Step 2. Backward & step
+                if use_bfloat16:
+                    scaler.scale(loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    loss.backward()
+                    optimizer.step()
+                grad_stats = grad_logger(encoder.named_parameters())
+                optimizer.zero_grad()
+
+                # Step 3. momentum update of target encoder
+                with torch.no_grad():
+                    m = next(momentum_scheduler)
+                    for param_q, param_k in zip(encoder.parameters(), target_encoder.parameters()):
+                        param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
+
+                return (float(loss), _new_lr, _new_wd, grad_stats)
+            (loss, _new_lr, _new_wd, grad_stats), etime = gpu_timer(train_step)
+            loss_meter.update(loss)
+            time_meter.update(etime)
+
+            # -- Logging
+            def log_stats():
+                csv_logger.log(epoch + 1, itr, loss, maskA_meter.val, maskB_meter.val, etime)
+                if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
+                    logger.info('[%d, %5d] loss: %.3f '
+                                'masks: %.1f %.1f '
+                                '[wd: %.2e] [lr: %.2e] '
+                                '[mem: %.2e] '
+                                '(%.1f ms)'
+                                % (epoch + 1, itr,
+                                   loss_meter.avg,
+                                   maskA_meter.avg,
+                                   maskB_meter.avg,
+                                   _new_wd,
+                                   _new_lr,
+                                   torch.cuda.max_memory_allocated() / 1024.**2,
+                                   time_meter.avg))
+
+                    if grad_stats is not None:
+                        logger.info('[%d, %5d] grad_stats: [%.2e %.2e] (%.2e, %.2e)'
+                                    % (epoch + 1, itr,
+                                       grad_stats.first_layer,
+                                       grad_stats.last_layer,
+                                       grad_stats.min,
+                                       grad_stats.max))
+
+            log_stats()
+
+            assert not np.isnan(loss), 'loss is nan'
+
+        # -- Save Checkpoint after every epoch
+        logger.info('avg. loss %.3f' % loss_meter.avg)
+        save_checkpoint(epoch+1)
+
+
+    def linear_probe_test(model,
+                          data_loader,
+                          device,
+                          n_categories=100,
+                          probe_lr=1e-3,
+                          probe_weight_decay=1e-4,
+                          val_epochs=1,
+                          out_feat_keys=['lastPOOL']):
+
+        # Set the eval model
+        for _, p in model.named_parameters():
+            p.requires_grad = False
+
+        model.eval()
+
+        # Use the embed_dim as the input dimension for the linear layer
+        # Set the correct size
+        in_dim = model.module.embed_dim
+        for key in out_feat_keys:
+            if key.startswith('concatPOOL'):
+                v = int(key.replace('concatPOOL', ''))
+                in_dim = model.module.embed_dim * v
+
+            if key.startswith('lastPOOL'):
+                in_dim = model.module.embed_dim
+
+        linear_probe = torch.nn.Linear(in_dim, n_categories).to(device)
+
+        optimizer = torch.optim.AdamW(linear_probe.parameters(),
+                                      lr=probe_lr,
+                                      weight_decay=probe_weight_decay,
+                                      amsgrad=True)
+
+        for epoch in range(val_epochs):
+            epoch_scores = []
+
+            for x, y in tqdm(data_loader):
+                x = x.to(device)
+                y = y.to(device)
+
+                with torch.no_grad():
+                    # Forward pass through the model and get the output from the last layer
+                    # Assuming the output is in the form (batch_size, num_patches, embed_dim)
+                    features = model(x,
+                                     out_feat_keys=out_feat_keys)[0].reshape(-1, in_dim)
+                    # Take the mean over the num_patches dimension if necessary
+                    if features.dim() == 3:
+                        features = features.mean(dim=1)
+
+                optimizer.zero_grad()
+                logits = linear_probe(features)
+
+                loss = torch.nn.functional.cross_entropy(logits, y)
+                top1_acc = (logits.argmax(dim=1) == y).float().mean()
+                epoch_scores.append(top1_acc.item())
+                print(np.mean(epoch_scores))
+
+                loss.backward()
+                optimizer.step()
+
+            print(f"\tVal Epoch {epoch + 1} - score: {np.mean(epoch_scores)}")
+
+        return model
