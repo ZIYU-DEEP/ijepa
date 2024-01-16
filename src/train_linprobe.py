@@ -123,6 +123,11 @@ def main(args, resume_preempt=False):
 
     with open(dump, 'w+') as f:
         yaml.dump(args, f)
+
+    print('BEFORE PARALLEL')
+    print(f'batch_size: {batch_size}')
+    print(f'batch_size: {base_lr_value}')
+    print(f'batch_size: {base_lr_batch_size}')
     # ----------------------------------------------------------------------- #
 
     try:
