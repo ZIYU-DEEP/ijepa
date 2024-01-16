@@ -102,7 +102,7 @@ def main(args, resume_preempt=False):
     momentum = float(args['optimization']['momentum'])
     nesterov = bool(args['optimization']['nesterov'])
     base_lr_value = float(args['optimization']['base_lr_value'])
-    base_lr_batch_size = int(args['optimization']['base_lr_value'])
+    base_lr_batch_size = int(args['optimization']['base_lr_batch_size'])
     milestones = list(args['optimization']['milestones'])
     gamma = float(args['optimization']['gamma'])
     base_epochs = int(args['optimization']['base_epochs'])
@@ -124,10 +124,6 @@ def main(args, resume_preempt=False):
     with open(dump, 'w+') as f:
         yaml.dump(args, f)
 
-    print('BEFORE PARALLEL')
-    print(f'batch_size: {batch_size}')
-    print(f'batch_size: {base_lr_value}')
-    print(f'batch_size: {base_lr_batch_size}')
     # ----------------------------------------------------------------------- #
 
     try:
@@ -225,10 +221,6 @@ def main(args, resume_preempt=False):
 
     # SET THE OPTIMIZER, SCHEDULER
     # ############### TO MODIFY ####################################
-    print('BEFORE EXECUTION')
-    print(f'batch_size: {batch_size}')
-    print(f'batch_size: {base_lr_value}')
-    print(f'batch_size: {base_lr_batch_size}')
     optimizer, scaler, scheduler, wd_scheduler = init_opt_prober(
         prober=prober,
         weight_decay=wd,

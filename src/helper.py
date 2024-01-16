@@ -240,12 +240,6 @@ def init_opt_prober(
     - milestones: [8, 16, 24]
     """
     # Set the scaled lr and the milestones
-    # DEBUG
-    print('IN FUNCTION')
-    print(f'batch_size: {batch_size}')
-    print(f'batch_size: {base_lr_value}')
-    print(f'batch_size: {base_lr_batch_size}')
-
     scaled_lr = batch_size * base_lr_value / base_lr_batch_size
 
     scaled_milestones = []
