@@ -11,6 +11,7 @@ import sys
 import torch
 
 import src.models.vision_transformer as vit
+from torch.optim.lr_scheduler import MultiStepLR
 from src.utils.schedulers import (
     WarmupCosineSchedule,
     CosineWDSchedule)
@@ -153,4 +154,74 @@ def init_opt(
         final_wd=final_wd,
         T_max=int(ipe_scale*num_epochs*iterations_per_epoch))
     scaler = torch.cuda.amp.GradScaler() if use_bfloat16 else None
+    return optimizer, scaler, scheduler, wd_scheduler
+
+
+def init_opt_linprobe(
+    prober,
+    weight_decay: float=0.0005,
+    momentum: float=0.9,
+    nesterov: bool=True,
+    batch_size: int=256,
+    base_lr_value: float=0.01,
+    base_lr_batch_size: int=256,
+    current_batch_size: int=128,
+    milestones: list=None,
+    gamma: float=0.1,
+):
+
+    """
+    scaled_lr = (batch_size * base_value ) / base_lr_batch_size
+    where batch_size = batch_size_per_gpu * world_size
+
+    For CIFAR100, the default setting is:
+    - auto_lr_scaling:
+        - auto_scale: true
+        - base_value: 0.01
+        - base_lr_batch_size: 256
+    - name: multistep
+    - values: [0.01, 0.001, 0.0001, 0.00001]
+    - milestones: [8, 16, 24]
+    """
+    # Set the scaled lr and the milestones
+    scaled_lr = batch_size * base_lr_value / base_lr_batch_size
+
+    scaled_milestones = []
+    for m in milestones:
+        scaled_milestones.append(int((base_lr_batch_size / batch_size) * m))
+
+    # Set the parameters
+    param_groups = [
+        {
+            'params': (p for n, p in prober.named_parameters()
+                       if ('bias' not in n) and (len(p.shape) != 1))
+        },
+        {
+            'params': (p for n, p in prober.named_parameters()
+                       if ('bias' in n) or (len(p.shape) == 1)),
+            'WD_exclude': True,
+            'weight_decay': 0
+        }
+    ]
+
+    # Set the SGD optimizer
+    logger.info('Using SGD.')
+    optimizer = torch.optim.SGD(param_groups,
+                                lr=scaled_lr,
+                                weight_decay=weight_decay,
+                                momentum=momentum,
+                                nesterov=nesterov)
+
+
+    # Set the scheduler
+    scheduler = MultiStepLR(
+        optimizer,
+        milestones=scaled_milestones,
+        gamma=gamma,
+        last_epoch=-1)
+
+    wd_scheduler = None
+
+    scaler = torch.cuda.amp.GradScaler() if use_bfloat16 else None
+
     return optimizer, scaler, scheduler, wd_scheduler
