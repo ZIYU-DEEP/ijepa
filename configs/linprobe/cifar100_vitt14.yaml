@@ -7,15 +7,13 @@ data:
   root_path: /localscratch/hsun409/
 
 logging:
-  folder: /localscratch/hsun409/logs/ijepa/cifar100_vitt14_ep5/
+  folder: /localscratch/hsun409/logs/ijepa/cifar100_vitt14/
   write_tag: linprobe_test
 
 meta:
   copy_data: false
   load_checkpoint: false
   model_name: vit_tiny
-  pred_depth: 12
-  pred_emb_dim: 384
   read_checkpoint: null
   use_bfloat16: false
 

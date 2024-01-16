@@ -50,6 +50,7 @@ from src.helper import (
     load_checkpoint,
     load_checkpoint_prober,
     init_model,
+    init_encoder,
     init_opt,
     init_opt_prober)
 from src.transforms import make_transforms
@@ -79,8 +80,6 @@ def main(args, resume_preempt=False):
     model_name = args['meta']['model_name']
     load_model = args['meta']['load_checkpoint'] or resume_preempt
     r_file = args['meta']['read_checkpoint']
-    pred_depth = args['meta']['pred_depth']
-    pred_emb_dim = args['meta']['pred_emb_dim']
     if not torch.cuda.is_available():
         device = torch.device('cpu')
     else:
@@ -150,12 +149,10 @@ def main(args, resume_preempt=False):
                             ('%d', 'time (ms)'))
 
     # -- init model
-    encoder, _ = init_model(
+    encoder = init_encoder(
         device=device,
         patch_size=patch_size,
         crop_size=crop_size,
-        pred_depth=pred_depth,
-        pred_emb_dim=pred_emb_dim,
         model_name=model_name)
 
     transform_train = transforms.Compose([

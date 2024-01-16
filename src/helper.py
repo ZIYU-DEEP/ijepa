@@ -95,6 +95,34 @@ def load_checkpoint_prober(device,
     return prober, opt, scaler, epoch
 
 
+def init_encoder(
+    device,
+    patch_size=16,
+    model_name='vit_base',
+    crop_size=224):
+
+    encoder = vit.__dict__[model_name](
+        img_size=[crop_size],
+        patch_size=patch_size)
+
+    def init_weights(m):
+        if isinstance(m, torch.nn.Linear):
+            trunc_normal_(m.weight, std=0.02)
+            if m.bias is not None:
+                torch.nn.init.constant_(m.bias, 0)
+        elif isinstance(m, torch.nn.LayerNorm):
+            torch.nn.init.constant_(m.bias, 0)
+            torch.nn.init.constant_(m.weight, 1.0)
+
+    for m in encoder.modules():
+        init_weights(m)
+
+
+    encoder.to(device)
+    logger.info(encoder)
+    return encoder
+
+
 def init_model(
     device,
     patch_size=16,
