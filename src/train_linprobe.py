@@ -106,7 +106,7 @@ def main(args, resume_preempt=False):
     milestones = list(args['optimization']['milestones'])
     gamma = float(args['optimization']['gamma'])
     base_epochs = int(args['optimization']['base_epochs'])
-    num_epochs = base_epochs * int(base_batch_size / batch_size)
+    num_epochs = base_epochs * int(base_lr_batch_size / batch_size)
 
     # -- LOGGING
     folder = args['logging']['folder']
@@ -211,10 +211,10 @@ def main(args, resume_preempt=False):
     for key in out_feat_keys:
         if key.startswith('concatPOOL'):
             v = int(key.replace('concatPOOL', ''))
-            in_dim = model.module.embed_dim * v
+            in_dim = encoder.module.embed_dim * v
 
         if key.startswith('lastPOOL'):
-            in_dim = model.module.embed_dim
+            in_dim = encoder.module.embed_dim
 
     # -- set the model
     prober = torch.nn.Linear(in_dim, n_categories).to(device)
@@ -229,7 +229,6 @@ def main(args, resume_preempt=False):
         batch_size=batch_size,
         base_lr_value=base_lr_value,
         base_lr_batch_size=base_lr_batch_size,
-        current_batch_size=current_batch_size,
         milestones=milestones,
         gamma=gamma)
 
@@ -257,7 +256,7 @@ def main(args, resume_preempt=False):
             'loss': loss_meter.avg,
             'batch_size': batch_size,
             'world_size': world_size,
-            'lr': lr
+            'lr': base_lr_value
         }
         if rank == 0:
             torch.save(save_dict, latest_path)
@@ -278,8 +277,8 @@ def main(args, resume_preempt=False):
         for itr, (x, y) in enumerate(supervised_loader):
 
             # ###############################
-            x = x.to(device, non_blocking=true)
-            y = y.to(device, non_blocking=true)
+            x = x.to(device, non_blocking=True)
+            y = y.to(device, non_blocking=True)
 
 
             #################################
@@ -318,7 +317,7 @@ def main(args, resume_preempt=False):
 
                 return (float(loss), float(acc), _new_lr, _new_wd, grad_stats)
 
-            (loss, acc, _new_lr, grad_stats), etime = gpu_timer(train_step)
+            (loss, acc, _new_lr, _new_wd, grad_stats), etime = gpu_timer(train_step)
             loss_meter.update(loss)
             time_meter.update(etime)
             acc_meter.update(acc)
@@ -327,7 +326,8 @@ def main(args, resume_preempt=False):
             def log_stats():
                 csv_logger.log(epoch + 1, itr, loss, acc, etime)
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
-                    logger.info('[%d, %5d] loss: %.3f '
+                    logger.info('[%d, %5d] '
+                                'loss: %.3f '
                                 '[acc: %.2e] '
                                 '[wd: %.2e] '
                                 '[lr: %.2e] '
