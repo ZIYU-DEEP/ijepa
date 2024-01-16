@@ -1,0 +1,38 @@
+data:
+  batch_size: 128
+  crop_size: 224
+  image_folder: data/
+  num_workers: 10
+  pin_mem: true
+  root_path: /localscratch/hsun409/
+
+logging:
+  folder: /localscratch/hsun409/logs/ijepa/cifar100_vith14/
+  write_tag: linprobe_test
+
+mask:
+  patch_size: 14
+
+meta:
+  copy_data: false
+  load_checkpoint: false
+  model_name: vit_huge
+  read_checkpoint: null
+  use_bfloat16: false
+  load_encoder_weights: true
+  load_encoder_weights_path: /localscratch/hsun409/logs/ijepa/cifar100_vith14/IN1K-vit.h.14-300e.pth.tar
+
+probe:
+  out_feat_keys:
+  - direct
+  n_categories: 100
+
+optimization:
+  weight_decay: 0.0005
+  momentum: 0.9
+  nesterov: true
+  base_lr_value: 0.01
+  base_lr_batch_size: 256
+  milestones: [8, 16, 24]
+  gamma: 0.1
+  base_epochs: 28

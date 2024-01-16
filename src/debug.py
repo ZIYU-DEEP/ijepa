@@ -10,6 +10,7 @@ try:
 except Exception:
     pass
 
+import time
 import copy
 import logging
 import sys
@@ -227,6 +228,7 @@ def main(args, resume_preempt=False):
     encoder.eval()
     for epoch in range(num_epochs):
         epoch_scores = []
+        last_log_time = time.time()
 
         for x, y in tqdm(supervised_loader):
             x, y = x.to(device), y.to(device)
@@ -239,11 +241,16 @@ def main(args, resume_preempt=False):
             loss = torch.nn.functional.cross_entropy(logits, y)
             top1_acc = (logits.argmax(dim=1) == y).float().mean()
             epoch_scores.append(top1_acc.item())
-            print(np.mean(epoch_scores))
+
             loss.backward()
             optimizer.step()
 
-        print(f"\tVal Epoch {epoch + 1} - score: {np.mean(epoch_scores)}")
+            current_time = time.time()
+            if current_time - last_log_time >= 60:
+                logger.info(f"Average Score: {np.mean(epoch_scores):.4f}, Loss: {loss.item():.4f}")
+                last_print_time = current_time  # Update the last print time
+
+        logger.info(f"\tVal Epoch {epoch + 1} - score: {np.mean(epoch_scores)}")
 
 
 if __name__ == "__main__":
