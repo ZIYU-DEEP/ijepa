@@ -408,21 +408,21 @@ class VisionTransformer(nn.Module):
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, 
-                x: torch.Tensor, 
+    def forward(self,
+                x: torch.Tensor,
                 masks=None,
                 out_feat_keys: List[str] = None) -> List[torch.Tensor]:
-        
+
         if out_feat_keys is None or len(out_feat_keys) == 0:
             x = self.forward_features(x, masks)
         else:
             x = self.get_intermediate_features(x, masks, out_feat_keys)
         return x
-    
-    def prepare_tokens(self, 
-                       x: torch.Tensor, 
+
+    def prepare_tokens(self,
+                       x: torch.Tensor,
                        masks=None) -> torch.Tensor:
-        
+
         if masks is not None:
             if not isinstance(masks, list):
                 masks = [masks]
@@ -441,7 +441,7 @@ class VisionTransformer(nn.Module):
 
         return x
 
-    def forward_features(self, 
+    def forward_features(self,
                          x: torch.Tensor,
                          masks=None):
 
@@ -456,7 +456,7 @@ class VisionTransformer(nn.Module):
 
         return x
 
-    def get_intermediate_features(self, 
+    def get_intermediate_features(self,
                                 x: torch.Tensor, masks=None, names: List[str]=None) -> List[torch.Tensor]:
         """
         Given a list of feature names, return a list of the same length
