@@ -115,6 +115,8 @@ def main(args, resume_preempt=False):
     load_weights_path = args['probe']['load_weights_path']
 
     dump = os.path.join(folder, 'params-ijepa.yaml')
+    os.makedirs(dump, exist_ok=True)
+
     with open(dump, 'w+') as f:
         yaml.dump(args, f)
     # ----------------------------------------------------------------------- #
