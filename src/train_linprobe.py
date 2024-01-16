@@ -128,7 +128,6 @@ def main(args, resume_preempt=False):
     try:
         mp.set_start_method('spawn')
     except Exception:
-        print('pass!')
         pass
 
     # -- init torch distributed backend
